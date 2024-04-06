@@ -12,7 +12,7 @@ use statrs::function::gamma::gamma;
 
 #[derive(Clone)]
 struct Sobj {
-    _s_mat: Vec<Vec<f64>>,
+    s_mat: Vec<Vec<f64>>,
     dtr: Vec<f64>,
     dtd: Vec<f64>,
     mu_index: Vec<i32>,
@@ -27,6 +27,10 @@ fn vbart_sampler(
     delta: f64,
     lon: &RObject<RVector, f64>,
     lat: &RObject<RVector, f64>,
+    s_list_r: &mut RObject<RList>,
+    mu_list_r: &mut RObject<RList>,
+    tau_vec_r: &mut RObject<RVector, f64>,
+    yhat_mat_r: &mut RObject<RMatrix, f64>,
 ) {
     let mut rng = rand::thread_rng();
     let nrows = y.len();
@@ -120,12 +124,110 @@ fn vbart_sampler(
         }
         tau_vec[scan_index] = sample_tau_given_everything(&yhat, &dy, 2.0, 2.0);
     }
-    rprintln!("Finished!");
-    let ret = RObject::<RList>::with_names(["s_list", "mu_list", "tau_vec", "yhat_mat"], pc);
-    // ret.set(0, s_list).stop();
-    // ret.set(1, mu_list).stop();
-    // ret.set(2, tau_vec).stop();
-    // ret.set(3, yhat_mat).stop();
+    rprintln!("Finished sampling. Writing to list now");
+
+    // This is where I'm going to populate all of the R data objects that were passed in.
+    for scan_index in 0..n_samples {
+        for tree_index in 0..n_trees {
+            // s_list
+            let temp_init = s_list_r
+                .get_mut(scan_index)
+                .stop()
+                .as_list_mut()
+                .stop()
+                .get_mut(tree_index)
+                .stop()
+                .as_list_mut()
+                .stop();
+
+            let temp: &mut RObject<RMatrix, f64> = temp_init
+                .get_mut(0)
+                .stop()
+                .as_matrix_mut()
+                .stop()
+                .as_f64_mut()
+                .stop();
+            for i in 0..s_list[scan_index][tree_index].s_mat.len() {
+                for j in 0..2 {
+                    temp.set((i, j), s_list[scan_index][tree_index].s_mat[i][j])
+                        .stop();
+                }
+            }
+
+            let temp: &mut RObject<RVector, f64> = temp_init
+                .get_mut(1)
+                .stop()
+                .as_vector_mut()
+                .stop()
+                .as_f64_mut()
+                .stop();
+            for i in 0..s_list[scan_index][tree_index].dtr.len() {
+                temp.set(i, s_list[scan_index][tree_index].dtr[i]).stop()
+            }
+
+            let temp: &mut RObject<RVector, f64> = temp_init
+                .get_mut(2)
+                .stop()
+                .as_vector_mut()
+                .stop()
+                .as_f64_mut()
+                .stop();
+            for i in 0..s_list[scan_index][tree_index].dtd.len() {
+                temp.set(i, s_list[scan_index][tree_index].dtd[i]).stop()
+            }
+
+            let temp: &mut RObject<RVector, i32> = temp_init
+                .get_mut(3)
+                .stop()
+                .as_vector_mut()
+                .stop()
+                .as_i32_mut()
+                .stop();
+            for i in 0..s_list[scan_index][tree_index].mu_index.len() {
+                temp.set(i, s_list[scan_index][tree_index].mu_index[i])
+                    .stop()
+            }
+
+            let temp: &mut RObject<RScalar, f64> = temp_init
+                .get_mut(4)
+                .stop()
+                .as_scalar_mut()
+                .stop()
+                .as_f64_mut()
+                .stop();
+            temp.set(s_list[scan_index][tree_index].log_crit);
+
+            // mu_list
+            let temp: &mut RObject<RVector, f64> = mu_list_r
+                .get_mut(scan_index)
+                .stop()
+                .as_list_mut()
+                .stop()
+                .get_mut(tree_index)
+                .stop()
+                .as_vector_mut()
+                .stop()
+                .as_f64_mut()
+                .stop();
+            for i in 0..mu_list[scan_index][tree_index].len() {
+                temp.set(i, mu_list[scan_index][tree_index][i]).stop();
+            }
+
+            // tau_vec
+            for i in 0..tau_vec.len() {
+                tau_vec_r.set(i, tau_vec[i]).stop();
+            }
+
+            // yhat_mat
+            for i in 0..yhat_mat.len() {
+                for j in 0..yhat_mat[i].len() {
+                    yhat_mat_r.set((i, j), yhat_mat[i][j]).stop();
+                }
+            }
+        }
+    }
+
+    let ret = RObject::<RScalar, i32>::from_value(1, pc);
     ret
 }
 
@@ -143,10 +245,11 @@ fn sample_s_given_r_tau<'a>(
     let uno = Uniform::new(-111.2, -109.3);
     let dos = Uniform::new(40.5, 41.0);
     let mut s_mat = vec![vec![0.0; 2]; b + 1];
-    for i in 0..b {
+    for i in 0..(b + 1) {
         s_mat[i][0] = uno.sample(&mut rng);
         s_mat[i][1] = dos.sample(&mut rng);
     }
+    // rprintln!("{:?}", s_mat);
 
     let mut d_mat = vec![vec![0.0; b + 1]; nrow];
     for i in 0..nrow {
@@ -195,14 +298,14 @@ fn sample_s_given_r_tau<'a>(
         .map(|(x, y)| (-(1.0 + tau * y).ln() + tau.powi(2) / (1.0 + tau * y) * x.powi(2)) as f64)
         .sum();
     let log_crit: f64 = log_crit_temp / 2.0 + pois_pmf(b as i32, delta).ln();
-    let mut s_new = vec![vec![0.0; 2]; b + 1];
-    for i in 0..(b + 1) {
-        for j in 0..2 {
-            s_new[i][j] = s_mat[i][j];
-        }
-    }
+    // let mut s_new = vec![vec![0.0; 2]; b + 1];
+    // for i in 0..(b + 1) {
+    //     for j in 0..2 {
+    //         s_new[i][j] = s_mat[i][j];
+    //     }
+    // }
     let ret = Sobj {
-        _s_mat: s_new,
+        s_mat,
         dtr,
         dtd,
         mu_index,
