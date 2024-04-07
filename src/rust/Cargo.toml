@@ -22,4 +22,6 @@ rand_pcg = "0.3.1"
 geo = "0.28.0"
 compute = "0.2.3"
 statrs = "0.16.0"
+serde = "1.0.197"
+serde_json = "1.0.115"
 
