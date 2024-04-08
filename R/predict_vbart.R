@@ -1,6 +1,6 @@
-#' Sample from the VBART... whatever that means
+#' Predict from the VBART... whatever that means
 #'
-#' This function runs the VBART sampler.
+#' This function runs the VBART prediction.
 #'
 #' @param y A vector of data points.
 #' @param n_samples A scalar giving the number of samples.
@@ -13,6 +13,6 @@
 #' @export
 #' @examples
 #' vbart_sampler(y, 1000, 50, 2, lon, lat)
-vbart_sampler <- function(y, n_samples, n_trees, delta, lon, lat) {
-  .Call(.vbart_sampler, y, n_samples, n_trees, delta, lon, lat)
+predict_vbart <- function(vbart_obj, new_lon, new_lat) {
+  .Call(.predict_vbart, vbart_obj, new_lon, new_lat)
 }
