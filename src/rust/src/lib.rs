@@ -40,7 +40,7 @@ fn vbart_sampler(
     let mut rng = rand::thread_rng();
     let nrows = y.len();
     let ymean: f64 = y.slice().iter().fold(0.0, |s, &z| s + z) / nrows as f64;
-    let dy = vec![0.0; nrows];
+    let dy: Vec<f64> = y.slice().iter().map(|x| x - ymean).collect();
 
     let mut s_list = Vec::new();
     let mut mu_list = Vec::new();
