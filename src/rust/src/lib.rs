@@ -6,7 +6,7 @@ use geo::point;
 use geo::prelude::*;
 use geo::Point;
 use rand::prelude::*;
-use rand_distr::{Distribution, Gamma, Normal, Poisson, Standard, Uniform};
+use rand_distr::{Distribution, Gamma, Normal, Poisson, Uniform};
 use roxido::*;
 use serde::{Deserialize, Serialize};
 
@@ -98,7 +98,7 @@ fn vbart_sampler(
             // Update S conditional on R and tau
             let prop_s = sample_s_given_r_tau(&r, tau_vec[scan_index - 1], delta, nrows, lon, lat);
             if prop_s.log_crit - s_list[scan_index - 1][tree_index].log_crit
-                > StdRng::from_rng(&mut rng).unwrap().sample(Standard)
+                > Rng::gen::<f64>(&mut rng).ln()
             {
                 s_list[scan_index].push(prop_s);
             } else {
@@ -156,14 +156,17 @@ fn sample_s_given_r_tau<'a>(
     let uno = Uniform::new(-111.2, -109.3);
     let dos = Uniform::new(40.5, 41.0);
     let mut s_mat = vec![vec![0.0; 2]; b + 1];
-    for i in 0..(b + 1) {
-        s_mat[i][0] = uno.sample(&mut rng);
-        s_mat[i][1] = dos.sample(&mut rng);
+    s_mat[0][1] = -110.25;
+    s_mat[0][0] = 40.75;
+    for i in 1..(b + 1) {
+        s_mat[i][1] = uno.sample(&mut rng);
+        s_mat[i][0] = dos.sample(&mut rng);
     }
 
+    let mut mu_index = vec![0; nrow];
     let mut d_mat = vec![vec![0.0; b + 1]; nrow];
     for i in 0..nrow {
-        for j in 0..b {
+        for j in 0..(b + 1) {
             d_mat[i][j] = euc_dist(
                 point!(x: lat.get(i).stop(), y: lon.get(i).stop()),
                 point!(x: s_mat[j][0], y: s_mat[j][1]),
@@ -171,35 +174,34 @@ fn sample_s_given_r_tau<'a>(
         }
     }
 
-    let mut mu_index = vec![0; nrow];
     // Find the row minimum
     for i in 0..nrow {
-        let mut cur_min = d_mat[i][0];
+        let mut cur_min = d_mat[i][0].clone();
         let mut cur_min_index: i32 = 0;
-        for j in 1..b {
-            let ii = d_mat[i][j];
+        for j in 1..(b + 1) {
+            let ii = d_mat[i][j].clone();
             if ii < cur_min {
                 cur_min = ii;
                 cur_min_index = j as i32;
             }
         }
-        mu_index[i] = cur_min_index;
+        mu_index[i] = cur_min_index.clone();
     }
 
     let mut dtr = vec![0.0; b + 1];
     let mut dtd = vec![0.0; b + 1];
 
-    for i in 0..b {
+    for i in 0..(b + 1) {
+        let mut dtr_temp = 0.0;
+        let mut dtd_temp = 0.0;
         for j in 0..nrow {
-            let mut dtr_temp = 0.0;
-            let mut dtd_temp = 0.0;
             if i == mu_index[j] as usize {
                 dtr_temp += r[j];
                 dtd_temp += 1.0;
             }
-            dtr[i] = dtr_temp;
-            dtd[i] = dtd_temp;
         }
+        dtr[i] = dtr_temp;
+        dtd[i] = dtd_temp;
     }
 
     let log_crit_temp: f64 = dtr
@@ -251,7 +253,7 @@ fn sample_tau_given_everything(yhat: &Vec<f64>, dy: &Vec<f64>, a: f64, b: f64) -
         .zip(yhat.iter())
         .map(|(x, y)| (x - y).powi(2))
         .sum();
-    let gam = Gamma::new(a + (yhat.len() as f64) / 2.0, b + mse / 2.0).unwrap();
+    let gam = Gamma::new(a + (yhat.len() as f64) / 2.0, 1.0 / (b + mse / 2.0)).unwrap();
     let mut rng = rand::thread_rng();
     gam.sample(&mut rng)
 }
@@ -335,4 +337,21 @@ fn predict_for_tree(
         mu_index[i] = mu[cur_min_index];
     }
     mu_index
+}
+
+#[roxido]
+fn get_yhat_mat(vbart_obj: &RObject<RScalar, RCharacter>) {
+    let output: Retval = serde_json::from_str(vbart_obj.get()).stop();
+    let ret = RObject::<RMatrix, f64>::from_value(
+        0.0,
+        output.yhat_mat.len(),
+        output.yhat_mat[0].len(),
+        pc,
+    );
+    for i in 0..output.yhat_mat.len() {
+        for j in 0..output.yhat_mat[i].len() {
+            ret.set((i, j), output.yhat_mat[i][j]).stop();
+        }
+    }
+    ret
 }
