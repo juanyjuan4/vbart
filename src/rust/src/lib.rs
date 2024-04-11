@@ -1,13 +1,11 @@
-mod registration {
-    include!(concat!(env!("OUT_DIR"), "/registration.rs"));
-}
+roxido_registration!();
+use roxido::*;
 
 use geo::point;
 use geo::prelude::*;
 use geo::Point;
 use rand::prelude::*;
 use rand_distr::{Distribution, Gamma, Normal, Poisson, Uniform};
-use roxido::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -30,12 +28,12 @@ struct Retval {
 
 #[roxido]
 fn vbart_sampler(
-    y: &RObject<RVector, f64>,
+    y: &RVector<f64>,
     n_samples: usize,
     n_trees: usize,
     delta: f64,
-    lon: &RObject<RVector, f64>,
-    lat: &RObject<RVector, f64>,
+    lon: &RVector<f64>,
+    lat: &RVector<f64>,
 ) {
     let mut rng = rand::thread_rng();
     let nrows = y.len();
@@ -147,8 +145,8 @@ fn sample_s_given_r_tau<'a>(
     tau: f64,
     delta: f64,
     nrow: usize,
-    lon: &'a RObject<RVector, f64>,
-    lat: &'a RObject<RVector, f64>,
+    lon: &'a RVector<f64>,
+    lat: &'a RVector<f64>,
 ) -> Sobj {
     let mut rng = rand::thread_rng();
     let poi = Poisson::new(delta).unwrap();
@@ -261,15 +259,11 @@ fn sample_tau_given_everything(yhat: &Vec<f64>, dy: &Vec<f64>, a: f64, b: f64) -
 // ##### Prediction functions #####
 
 #[roxido]
-fn predict_vbart(
-    vbart_obj: &RObject<RScalar, RCharacter>,
-    new_lon: &RObject<RVector, f64>,
-    new_lat: &RObject<RVector, f64>,
-) {
+fn predict_vbart(vbart_obj: &RScalar<char>, new_lon: &RVector<f64>, new_lat: &RVector<f64>) {
     // Get sampling output data back from json
-    let output: Retval = serde_json::from_str(vbart_obj.get()).stop();
+    let output: Retval = serde_json::from_str(vbart_obj.get().stop()).stop();
     // Set up ret matrix
-    let ret = RObject::<RMatrix, f64>::from_value(0.0, output.mu_list.len(), new_lat.len(), pc);
+    let ret = RMatrix::from_value(0.0, output.mu_list.len(), new_lat.len(), pc);
     // Set up vector to store prediction for each sample
     let mut preds = vec![0.0; output.s_list.len()];
     // Predict once for each sample
@@ -283,7 +277,7 @@ fn predict_vbart(
         );
         // Write predictions to return matrix
         for j in 0..preds.len() {
-            ret.set((scan_index, j), preds[j]).stop();
+            ret.set(scan_index, j, preds[j]).stop();
         }
     }
     ret
@@ -292,8 +286,8 @@ fn predict_vbart(
 fn predict_for_sweep(
     s_list: &Vec<Sobj>,
     mu_list: &Vec<Vec<f64>>,
-    new_lon: &RObject<RVector, f64>,
-    new_lat: &RObject<RVector, f64>,
+    new_lon: &RVector<f64>,
+    new_lat: &RVector<f64>,
     ymean: f64,
 ) -> Vec<f64> {
     let mut output = vec![0.0; new_lat.len()];
@@ -311,8 +305,8 @@ fn predict_for_sweep(
 fn predict_for_tree(
     s: &Sobj,
     mu: &Vec<f64>,
-    new_lon: &RObject<RVector, f64>,
-    new_lat: &RObject<RVector, f64>,
+    new_lon: &RVector<f64>,
+    new_lat: &RVector<f64>,
 ) -> Vec<f64> {
     let mut d_mat = vec![vec![0.0; s.s_mat.len()]; new_lat.len()];
     let mut mu_index = vec![0.0; new_lat.len()];
@@ -340,17 +334,12 @@ fn predict_for_tree(
 }
 
 #[roxido]
-fn get_yhat_mat(vbart_obj: &RObject<RScalar, RCharacter>) {
-    let output: Retval = serde_json::from_str(vbart_obj.get()).stop();
-    let ret = RObject::<RMatrix, f64>::from_value(
-        0.0,
-        output.yhat_mat.len(),
-        output.yhat_mat[0].len(),
-        pc,
-    );
+fn get_yhat_mat(vbart_obj: &RScalar<char>) {
+    let output: Retval = serde_json::from_str(vbart_obj.get().stop()).stop();
+    let ret = RMatrix::from_value(0.0, output.yhat_mat.len(), output.yhat_mat[0].len(), pc);
     for i in 0..output.yhat_mat.len() {
         for j in 0..output.yhat_mat[i].len() {
-            ret.set((i, j), output.yhat_mat[i][j]).stop();
+            ret.set(i, j, output.yhat_mat[i][j]).stop();
         }
     }
     ret
